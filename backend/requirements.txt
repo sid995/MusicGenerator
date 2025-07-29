@@ -1,1 +1,4 @@
-modal==1.1.0
+transformers
+diffusers
+torch
+pydantic

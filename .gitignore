@@ -95,3 +95,6 @@ out/
 
 # MacOS
 .DS_Store
+
+# Ignore downloaded github repos
+backend/ACE-Steps
