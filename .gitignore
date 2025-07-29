@@ -97,4 +97,4 @@ out/
 .DS_Store
 
 # Ignore downloaded github repos
-backend/ACE-Steps
+backend/ACE-Step
