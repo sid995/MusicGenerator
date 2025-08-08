@@ -3,6 +3,7 @@ import modal
 import os
 import uuid
 from pydantic import BaseModel
+import requests
 
 app = modal.App("MusicGenerator")
 
@@ -33,7 +34,7 @@ class GenerateMusicResponse(BaseModel):
 
 @app.cls(
     image=image,
-    gpu="T4",
+    gpu="L40S",
     volumes={"/models": modal_volume, "/.cache/huggingface": hf_volume},
     secrets=[music_gen_secrets],
     scaledown_window=15,
@@ -43,12 +44,12 @@ class MusicGenServer:
     @modal.enter()
     def load_modal(self):
         from acestep.pipeline_ace_step import ACEStepPipeline
-        from transformers import AutoTokenizer, AutoModelForCausalLM
+        from transformers import AutoModelForCausalLM, AutoTokenizer
         from diffusers.pipelines.auto_pipeline import AutoPipelineForText2Image
         import torch
 
-        # Music generation model
-        self.music_modal = ACEStepPipeline(
+        # Music Generation Model
+        self.music_model = ACEStepPipeline(
             checkpoint_dir="/models",
             dtype="bfloat16",
             torch_compile=False,
@@ -56,10 +57,11 @@ class MusicGenServer:
             overlapped_decode=False,
         )
 
-        # Large Language Model (QWEN)
+        # Large Language Model
         model_id = "Qwen/Qwen2-7B-Instruct"
         self.tokenizer = AutoTokenizer.from_pretrained(model_id)
-        self.model = AutoModelForCausalLM.from_pretrained(
+
+        self.llm_model = AutoModelForCausalLM.from_pretrained(
             model_id,
             torch_dtype="auto",
             device_map="auto",
@@ -75,19 +77,21 @@ class MusicGenServer:
         )
         self.image_pipe.to("cuda")
 
+    # API written to handle initial test of system
+    # Contains hardcoded attributes
     @modal.fastapi_endpoint(method="POST")
     def generate(self) -> GenerateMusicResponse:
         output_dir = "/tmp/outputs"
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"{uuid.uuid4()}.wav")
 
-        self.music_modal(
+        self.music_model(
             prompt="electronic rap",
             lyrics="[verse]\nWaves on the bass, pulsing in the speakers,\nTurn the dial up, we chasing six-figure features,\nGrinding on the beats, codes in the creases,\nDigital hustler, midnight in sneakers.\n\n[chorus]\nElectro vibes, hearts beat with the hum,\nUrban legends ride, we ain't ever numb,\nCircuits sparking live, tapping on the drum,\nLiving on the edge, never succumb.\n\n[verse]\nSynthesizers blaze, city lights a glow,\nRhythm in the haze, moving with the flow,\nSwagger on stage, energy to blow,\nFrom the blocks to the booth, you already know.\n\n[bridge]\nNight's electric, streets full of dreams,\nBass hits collective, bursting at seams,\nHustle perspective, all in the schemes,\nRise and reflective, ain't no in-betweens.\n\n[verse]\nVibin' with the crew, sync in the wire,\nGot the dance moves, fire in the attire,\nRhythm and blues, soul's our supplier,\nRun the digital zoo, higher and higher.\n\n[chorus]\nElectro vibes, hearts beat with the hum,\nUrban legends ride, we ain't ever numb,\nCircuits sparking live, tapping on the drum,\nLiving on the edge, never succumb.",
             audio_duration=180,
             infer_step=60,
             guidance_scale=15,
-            safe_path=output_path,
+            save_path=output_path,
         )
 
         with open(output_path, "rb") as f:
@@ -102,4 +106,15 @@ class MusicGenServer:
 
 @app.local_entrypoint()
 def main():
-    pass
+    server = MusicGenServer()
+    endpoint_url = server.generate.get_web_url()
+    if endpoint_url is None:
+        raise ValueError("Endpoint URL is None. Cannot make POST request.")
+    response = requests.post(endpoint_url)
+    response.raise_for_status()
+    result = GenerateMusicResponse(**response.json())
+
+    audio_bytes = base64.b64decode(result.audio_data)
+    output_filename = "generated.wav"
+    with open(output_filename, "wb") as f:
+        f.write(audio_bytes)

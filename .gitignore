@@ -98,3 +98,5 @@ out/
 
 # Ignore downloaded github repos
 backend/ACE-Step
+
+*.wav
