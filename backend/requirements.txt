@@ -3,3 +3,4 @@ diffusers
 torch
 pydantic
 requests
+boto3
