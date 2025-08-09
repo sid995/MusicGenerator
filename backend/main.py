@@ -250,7 +250,6 @@ class MusicGenServer:
         return self.generate_and_upload_to_s3(
             prompt=prompt,
             lyrics=lyrics,
-            instrumental=request.instrumental,
             description_for_categorization=request.full_described_song,
             **request.model_dump(exclude={"full_described_song"}),
         )
