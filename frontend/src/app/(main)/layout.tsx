@@ -3,10 +3,10 @@ import "~/styles/globals.css";
 import { type Metadata } from "next";
 import { Geist } from "next/font/google";
 import { Providers } from "~/components/providers";
-import { Toaster } from "sonner";
+import { Toaster } from "~/components/ui/sonner";
 
 export const metadata: Metadata = {
-  title: "Music Genertor",
+  title: "Home",
   description: "Music Generator",
   icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
@@ -21,7 +21,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${geist.variable}`}>
-      <body className="flex min-h-svh flex-col">
+      <body>
         <Providers>
           {children}
           <Toaster />
