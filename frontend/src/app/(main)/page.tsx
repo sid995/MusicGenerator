@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import CreateSong from "~/components/create";
 import { auth } from "~/lib/auth";
 
 export default async function HomePage() {
@@ -14,6 +15,7 @@ export default async function HomePage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center">
       <p>Dashboard</p>
+      <CreateSong />
     </main>
   );
 }
