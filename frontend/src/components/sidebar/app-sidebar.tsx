@@ -13,6 +13,7 @@ import SidebarMenuItems from "./sidebar-menu-items";
 import { Credits } from "./credits";
 import { UserButton } from "@daveyplate/better-auth-ui";
 import { User } from "lucide-react";
+import Upgrade from "./upgrade";
 
 export async function AppSidebar() {
   return (
@@ -33,6 +34,7 @@ export async function AppSidebar() {
       <SidebarFooter>
         <div className="mb-2 flex w-full items-center justify-center gap-1 text-xs">
           <Credits />
+          <Upgrade />
         </div>
         <UserButton
           variant="outline"
