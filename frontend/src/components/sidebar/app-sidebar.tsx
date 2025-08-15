@@ -1,5 +1,6 @@
 "use server";
 
+import { UserButton } from "@daveyplate/better-auth-ui";
 import {
   Sidebar,
   SidebarContent,
@@ -8,10 +9,9 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
-} from "~/components/ui/sidebar";
-import SidebarMenuItems from "./sidebar-menu-items";
+} from "../ui/sidebar";
 import { Credits } from "./credits";
-import { UserButton } from "@daveyplate/better-auth-ui";
+import SidebarMenuItems from "./sidebar-menu-items";
 import { User } from "lucide-react";
 import Upgrade from "./upgrade";
 

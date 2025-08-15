@@ -136,15 +136,6 @@ export default function SoundBar() {
             </div>
 
             {/* Centered controls */}
-            <div className="absolute left-1/2 -translate-x-1/2">
-              <Button variant="ghost" size="icon" onClick={togglePlay}>
-                {isPlaying ? (
-                  <Pause className="h-4 w-4" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
 
             {/* Additional controls */}
             <div className="flex items-center gap-1">
@@ -183,6 +174,15 @@ export default function SoundBar() {
 
           {/* Full width progress bar for song */}
           <div className="flex items-center gap-1">
+            <div>
+              <Button variant="ghost" size="icon" onClick={togglePlay}>
+                {isPlaying ? (
+                  <Pause className="h-4 w-4" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
             <span className="text-muted-foreground w-8 text-right text-[10px]">
               {formatTime(currentTime)}
             </span>

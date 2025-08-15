@@ -1,9 +1,12 @@
+import { Loader2 } from "lucide-react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { SongPanel } from "~/components/create/song-panel";
+import TrackListFetcher from "~/components/create/track-list-fetch";
 import { auth } from "~/lib/auth";
 
-export default async function CreatePage() {
+export default async function Page() {
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -15,6 +18,15 @@ export default async function CreatePage() {
   return (
     <div className="flex h-full flex-col lg:flex-row">
       <SongPanel />
+      <Suspense
+        fallback={
+          <div className="flex h-full w-full items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin" />
+          </div>
+        }
+      >
+        <TrackListFetcher />
+      </Suspense>
     </div>
   );
 }

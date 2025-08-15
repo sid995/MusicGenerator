@@ -8,6 +8,7 @@ export default function Upgrade() {
       variant="outline"
       size="sm"
       className="ml-2 cursor-pointer text-orange-400"
+      onClick={() => {}}
     >
       Upgrade
     </Button>

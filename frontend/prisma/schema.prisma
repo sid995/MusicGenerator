@@ -85,9 +85,9 @@ model Song {
     fullDescribedSong String?
     describedLyrics   String?
     guidanceScale     Float?
-    inferStep         Int?
+    inferStep         Float?
     audioDuration     Float?
-    seed              Int?
+    seed              Float?
     published         Boolean    @default(false)
     listenCount       Int        @default(0)
     likes             Like[]
