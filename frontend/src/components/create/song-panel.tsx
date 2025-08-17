@@ -9,6 +9,7 @@ import { Switch } from "../ui/switch";
 import { Badge } from "../ui/badge";
 import { toast } from "sonner";
 import { generateSong, type GenerateRequest } from "~/actions/generation";
+import { debounce } from "~/lib/utils";
 
 const inspirationTags = [
   "80s synth-pop",
@@ -115,6 +116,8 @@ export function SongPanel() {
       setLoading(false);
     }
   };
+
+  const debouncedHandleCreate = debounce(handleCreate, 500);
 
   return (
     <div className="bg-muted/30 flex w-full flex-col border-r lg:w-80">
@@ -256,7 +259,7 @@ export function SongPanel() {
 
       <div className="border-t p-4">
         <Button
-          onClick={handleCreate}
+          onClick={debouncedHandleCreate}
           disabled={loading}
           className="w-full cursor-pointer bg-gradient-to-r from-orange-500 to-pink-500 font-medium text-white hover:from-orange-600 hover:to-pink-600"
         >
