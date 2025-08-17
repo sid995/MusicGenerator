@@ -112,6 +112,7 @@ export function SongPanel() {
       setStyleInput("");
     } catch (error) {
       toast.error("Failed to generate song");
+      console.error("Error generating song: ", error);
     } finally {
       setLoading(false);
     }

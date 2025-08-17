@@ -120,6 +120,7 @@ export default function SoundBar() {
               <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-purple-500 to-pink-500">
                 {track?.artwork ? (
                   <img
+                    alt={track.title ?? "Track Artwork"}
                     className="h-full w-full rounded-md object-cover"
                     src={track.artwork}
                   />
