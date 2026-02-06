@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Music } from "lucide-react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -14,6 +15,11 @@ export default async function Page() {
   if (!session) {
     redirect("/auth/sign-in");
   }
+
+  const user = await db.user.findUniqueOrThrow({
+    where: { id: session.user.id },
+    select: { credits: true },
+  });
 
   const songs = await db.song.findMany({
     where: {
@@ -95,6 +101,20 @@ export default async function Page() {
         <p className="text-muted-foreground mt-2">
           There are no published songs available right now. Check back later!
         </p>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href="/create"
+            className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-black/90"
+          >
+            Create your first song
+          </Link>
+          <Link
+            href="/pricing"
+            className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted"
+          >
+            View pricing
+          </Link>
+        </div>
       </div>
     );
   }

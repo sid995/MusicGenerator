@@ -25,6 +25,15 @@ export async function generateSong(generateRequest: GenerateRequest) {
 
   if (!session) redirect("/auth/sign-in");
 
+  const user = await db.user.findUniqueOrThrow({
+    where: { id: session.user.id },
+    select: { credits: true },
+  });
+
+  if (user.credits <= 0) {
+    throw new Error("Not enough credits to generate a song.");
+  }
+
   await queueSong(generateRequest, 15, session.user.id);
 
   revalidatePath("/create");

@@ -1,29 +1,35 @@
-# Create T3 App
+# MusicGenerator frontend
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
+Next.js app for the MusicGenerator SaaS. Handles auth, billing, song creation, playback, and admin tools.
 
-## What's next? How do I make an app with this?
+## Deployment
 
-We try to keep this project as simple as possible, so you can start with just the scaffolding we set up for you, and add additional things later when they become necessary.
+### Environment variables
 
-If you are not familiar with the different technologies used in this project, please refer to the respective docs. If you still are in the wind, please join our [Discord](https://t3.gg/discord) and ask for help.
+See `.env.example` in the repo root for the complete list. At minimum you need:
 
-- [Next.js](https://nextjs.org)
-- [NextAuth.js](https://next-auth.js.org)
-- [Prisma](https://prisma.io)
-- [Drizzle](https://orm.drizzle.team)
-- [Tailwind CSS](https://tailwindcss.com)
-- [tRPC](https://trpc.io)
+- `DATABASE_URL`
+- `MODAL_KEY`, `MODAL_SECRET`
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY_ID`, `AWS_REGION`, `S3_BUCKET_NAME`
+- `GENERATE_FROM_DESCRIPTION`, `GENERATE_FROM_DESCRIBED_LYRICS`, `GENERATE_WITH_LYRICS`
+- `BETTER_AUTH_SECRET`
+- `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`
 
-## Learn More
+### Steps
 
-To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:
+1. Push the database schema:
 
-- [Documentation](https://create.t3.gg/)
-- [Learn the T3 Stack](https://create.t3.gg/en/faq#what-learning-resources-are-currently-available) — Check out these awesome tutorials
+   ```bash
+   pnpm install
+   pnpm db:push
+   ```
 
-You can check out the [create-t3-app GitHub repository](https://github.com/t3-oss/create-t3-app) — your feedback and contributions are welcome!
+2. Deploy the Next.js app (e.g. to Vercel) with the env vars above.
 
-## How do I deploy this?
+3. Deploy the Modal backend (see root `README.md`) and paste the generated endpoint URLs into your frontend `.env`.
 
-Follow our deployment guides for [Vercel](https://create.t3.gg/en/deployment/vercel), [Netlify](https://create.t3.gg/en/deployment/netlify) and [Docker](https://create.t3.gg/en/deployment/docker) for more information.
+4. Configure Polar products (matching the product IDs in `src/lib/auth.ts`) and point Polar webhooks to your deployed `/api/auth` route.
+
+5. Start Inngest in your deployment platform or via their cloud offering.
+
+Once deployed, new users can sign up on the marketing homepage, receive free credits, and upgrade via Polar checkout to unlock higher tiers and more credits.

@@ -1,6 +1,8 @@
 import { db } from "~/server/db";
 import { inngest } from "./client";
 import { env } from "~/env";
+import { PLANS } from "~/lib/plan";
+import { calculateCredits, type GenerationMode } from "~/lib/credits";
 
 export const generateSong = inngest.createFunction(
   {
@@ -27,7 +29,7 @@ export const generateSong = inngest.createFunction(
       userId: string;
     };
 
-    const { userId, credits, endpoint, body } = await step.run(
+    const { userId, credits, endpoint, body, cost } = await step.run(
       "check-credits",
       async () => {
         const song = await db.song.findUniqueOrThrow({
@@ -39,6 +41,7 @@ export const generateSong = inngest.createFunction(
               select: {
                 id: true,
                 credits: true,
+                plan: true,
               },
             },
             prompt: true,
@@ -68,7 +71,7 @@ export const generateSong = inngest.createFunction(
         let endpoint = "";
         let body: RequestBody = {};
 
-        const commomParams = {
+        const commonParams = {
           guidance_scale: song.guidanceScale ?? undefined,
           infer_step: song.inferStep ?? undefined,
           audio_duration: song.audioDuration ?? undefined,
@@ -81,7 +84,7 @@ export const generateSong = inngest.createFunction(
           endpoint = env.GENERATE_FROM_DESCRIPTION;
           body = {
             full_described_song: song.fullDescribedSong,
-            ...commomParams,
+            ...commonParams,
           };
         }
 
@@ -91,7 +94,7 @@ export const generateSong = inngest.createFunction(
           body = {
             lyrics: song.lyrics,
             prompt: song.prompt,
-            ...commomParams,
+            ...commonParams,
           };
         }
 
@@ -101,20 +104,55 @@ export const generateSong = inngest.createFunction(
           body = {
             described_lyrics: song.describedLyrics,
             prompt: song.prompt,
-            ...commomParams,
+            ...commonParams,
           };
         }
+
+        // No valid mode detected
+        if (!endpoint) {
+          throw new Error("Could not determine generation mode for song.");
+        }
+
+        // Enforce plan-based constraints
+        const plan = PLANS[song.user.plan as keyof typeof PLANS];
+        const requestedDuration = body.audio_duration ?? undefined;
+
+        if (
+          requestedDuration &&
+          requestedDuration > plan.maxAudioDurationSeconds
+        ) {
+          throw new Error(
+            `Requested duration ${requestedDuration}s exceeds plan limit of ${plan.maxAudioDurationSeconds}s.`,
+          );
+        }
+
+        const durationSeconds = requestedDuration ?? plan.maxAudioDurationSeconds;
+
+        let mode: GenerationMode = "simple";
+        if (song.lyrics && song.prompt) {
+          mode = "prompt_with_lyrics";
+        } else if (song.describedLyrics && song.prompt) {
+          mode = "prompt_with_described_lyrics";
+        }
+
+        const cost = calculateCredits({
+          durationSeconds,
+          mode,
+          plan: plan.id,
+        });
 
         return {
           userId: song.user.id,
           credits: song.user.credits,
           endpoint: endpoint,
           body: body,
+          plan: plan.id,
+          cost,
         };
       },
     );
 
-    if (credits > 0) {
+    if (credits >= cost) {
       // Generate the song
       await step.run("set-status-processing", async () => {
         return await db.song.update({
@@ -138,13 +176,27 @@ export const generateSong = inngest.createFunction(
       });
 
       await step.run("update-song-result", async () => {
-        const responseData = response.ok
-          ? ((await response.json()) as {
+        let responseData:
+          | {
               s3_key: string;
               cover_image_s3_key: string;
               categories: string[];
-            })
-          : null;
+            }
+          | null = null;
+
+        if (response.ok) {
+          responseData = (await response.json()) as {
+            s3_key: string;
+            cover_image_s3_key: string;
+            categories: string[];
+          };
+        } else {
+          const errorBody = await response.text();
+          console.error("Music generation failed", {
+            status: response.status,
+            body: errorBody,
+          });
+        }
 
         await db.song.update({
           where: {
@@ -181,7 +233,7 @@ export const generateSong = inngest.createFunction(
           where: { id: userId },
           data: {
             credits: {
-              decrement: 1,
+              decrement: cost,
             },
           },
         });

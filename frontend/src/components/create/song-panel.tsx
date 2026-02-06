@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Textarea } from "../ui/textarea";
 import { Button } from "../ui/button";
@@ -10,6 +10,8 @@ import { Badge } from "../ui/badge";
 import { toast } from "sonner";
 import { generateSong, type GenerateRequest } from "~/actions/generation";
 import { debounce } from "~/lib/utils";
+import { calculateCredits, type GenerationMode } from "~/lib/credits";
+import type { PlanId } from "~/lib/plan";
 
 const inspirationTags = [
   "80s synth-pop",
@@ -30,7 +32,12 @@ const styleTags = [
   "Ambient pads",
 ];
 
-export function SongPanel() {
+type SongPanelProps = {
+  initialCredits: number;
+  plan: PlanId;
+};
+
+export function SongPanel({ initialCredits, plan }: SongPanelProps) {
   const [mode, setMode] = useState<"simple" | "custom">("simple");
   const [description, setDescription] = useState("");
   const [instrumental, setInstrumental] = useState(false);
@@ -38,6 +45,28 @@ export function SongPanel() {
   const [lyrics, setLyrics] = useState("");
   const [styleInput, setStyleInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [credits, setCredits] = useState(initialCredits);
+
+  const generationMode: GenerationMode = useMemo(() => {
+    if (mode === "simple") return "simple";
+    if (lyricsMode === "write") return "prompt_with_lyrics";
+    return "prompt_with_described_lyrics";
+  }, [mode, lyricsMode]);
+
+  // Until duration controls are exposed, use the default 180s for estimation
+  const estimatedDurationSeconds = 180;
+
+  const estimatedCost = useMemo(
+    () =>
+      calculateCredits({
+        durationSeconds: estimatedDurationSeconds,
+        mode: generationMode,
+        plan,
+      }),
+    [generationMode, plan],
+  );
+
+  const hasEnoughCredits = credits >= estimatedCost;
 
   const handleStyleInputTagClick = (tag: string) => {
     const currentTags = styleInput
@@ -107,11 +136,18 @@ export function SongPanel() {
     try {
       setLoading(true);
       await generateSong(requestBody);
+      setCredits((prev) => Math.max(0, prev - estimatedCost));
       setDescription("");
       setLyrics("");
       setStyleInput("");
     } catch (error) {
-      toast.error("Failed to generate song");
+      const message =
+        error instanceof Error ? error.message : "Failed to generate song";
+      if (message.toLowerCase().includes("not enough credits")) {
+        toast.error("Not enough credits. Please upgrade to generate more songs.");
+      } else {
+        toast.error(message);
+      }
       console.error("Error generating song: ", error);
     } finally {
       setLoading(false);
@@ -258,11 +294,32 @@ export function SongPanel() {
         </Tabs>
       </div>
 
-      <div className="border-t p-4">
+      <div className="border-t p-4 space-y-2">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            This song will cost{" "}
+            <span className="font-semibold text-foreground">
+              {estimatedCost} credit{estimatedCost !== 1 ? "s" : ""}
+            </span>
+            .
+          </span>
+          <span>
+            You have{" "}
+            <span className="font-semibold text-foreground">
+              {credits} credit{credits !== 1 ? "s" : ""}
+            </span>
+            .
+          </span>
+        </div>
+        {!hasEnoughCredits && (
+          <p className="text-xs text-destructive">
+            Not enough credits. Upgrade your plan to generate more songs.
+          </p>
+        )}
         <Button
           onClick={debouncedHandleCreate}
-          disabled={loading}
-          className="w-full cursor-pointer bg-gradient-to-r from-orange-500 to-pink-500 font-medium text-white hover:from-orange-600 hover:to-pink-600"
+          disabled={loading || !hasEnoughCredits}
+          className="w-full cursor-pointer bg-gradient-to-r from-orange-500 to-pink-500 font-medium text-white hover:from-orange-600 hover:to-pink-600 disabled:cursor-not-allowed"
         >
           {loading ? <Loader2 className="animate-spin" /> : <Music />}
           {loading ? "Creating..." : "Create"}

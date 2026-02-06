@@ -174,32 +174,43 @@ class MusicGenServer:
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"{uuid.uuid4()}.wav")
 
-        self.music_model(
-            prompt=prompt,
-            lyrics=final_lyrics,
-            audio_duration=audio_duration,
-            infer_step=infer_step,
-            guidance_scale=guidance_scale,
-            save_path=output_path,
-            manual_seeds=[seed],
-        )
+        try:
+            self.music_model(
+                prompt=prompt,
+                lyrics=final_lyrics,
+                audio_duration=audio_duration,
+                infer_step=infer_step,
+                guidance_scale=guidance_scale,
+                save_path=output_path,
+                manual_seeds=[seed],
+            )
 
-        audio_s3_key = f"{uuid.uuid4()}.wav"
-        s3_client.upload_file(output_path, bucket_name, audio_s3_key)
-        os.remove(output_path)
+            audio_s3_key = f"{uuid.uuid4()}.wav"
+            s3_client.upload_file(output_path, bucket_name, audio_s3_key)
+        except Exception as e:
+            # Surface a structured error back to the caller
+            raise RuntimeError(f"Failed to generate or upload audio: {e}") from e
+        finally:
+            if os.path.exists(output_path):
+                os.remove(output_path)
 
         # Thumbnail generation
-        thumbnail_prompt = f"{prompt}, album cover art"
-        image = self.image_pipe(
-            prompt=thumbnail_prompt, num_inference_steps=2, guidance_scale=0.0
-        ).images[0]
+        try:
+            thumbnail_prompt = f"{prompt}, album cover art"
+            image = self.image_pipe(
+                prompt=thumbnail_prompt, num_inference_steps=2, guidance_scale=0.0
+            ).images[0]
 
-        image_output_path = os.path.join(output_dir, f"{uuid.uuid4()}.png")
-        image.save(image_output_path)
+            image_output_path = os.path.join(output_dir, f"{uuid.uuid4()}.png")
+            image.save(image_output_path)
 
-        image_s3_key = f"{uuid.uuid4()}.png"
-        s3_client.upload_file(image_output_path, bucket_name, image_s3_key)
-        os.remove(image_output_path)
+            image_s3_key = f"{uuid.uuid4()}.png"
+            s3_client.upload_file(image_output_path, bucket_name, image_s3_key)
+        except Exception as e:
+            raise RuntimeError(f"Failed to generate or upload cover image: {e}") from e
+        finally:
+            if "image_output_path" in locals() and os.path.exists(image_output_path):
+                os.remove(image_output_path)
 
         # Category generation: "hip-hop", "rock"
         categories = self.generate_categories(description_for_categorization)

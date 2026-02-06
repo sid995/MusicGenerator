@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { SongPanel } from "~/components/create/song-panel";
 import TrackListFetcher from "~/components/create/track-list-fetch";
 import { auth } from "~/lib/auth";
+import { db } from "~/server/db";
 
 export default async function Page() {
   const session = await auth.api.getSession({
@@ -15,9 +16,20 @@ export default async function Page() {
     redirect("/auth/sign-in");
   }
 
+  const user = await db.user.findUniqueOrThrow({
+    where: { id: session.user.id },
+    select: {
+      credits: true,
+      plan: true,
+    },
+  });
+
   return (
     <div className="flex h-full flex-col lg:flex-row">
-      <SongPanel />
+      <SongPanel
+        initialCredits={user.credits}
+        plan={user.plan}
+      />
       <Suspense
         fallback={
           <div className="flex h-full w-full items-center justify-center">
