@@ -108,6 +108,15 @@ model Song {
     user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
     userId String
 
+    parentSongId String?
+    parentSong   Song?   @relation("SongExtension", fields: [parentSongId], references: [id], onDelete: SetNull)
+    extendedSongs Song[] @relation("SongExtension")
+
+    vocalsS3Key String?
+    drumsS3Key  String?
+    bassS3Key   String?
+    otherS3Key  String?
+
     @@index([s3Key])
 }
 

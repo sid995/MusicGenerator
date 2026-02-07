@@ -50,6 +50,10 @@ export default async function TrackListFetcher() {
         status: song.status,
         createdByUserName: song.user?.name,
         published: song.published,
+        vocalsS3Key: song.vocalsS3Key ?? null,
+        drumsS3Key: song.drumsS3Key ?? null,
+        bassS3Key: song.bassS3Key ?? null,
+        otherS3Key: song.otherS3Key ?? null,
       };
     }),
   );

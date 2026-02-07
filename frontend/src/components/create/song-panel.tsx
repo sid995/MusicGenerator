@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Textarea } from "../ui/textarea";
 import { Button } from "../ui/button";
@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { generateSong, type GenerateRequest } from "~/actions/generation";
 import { debounce } from "~/lib/utils";
 import { calculateCredits, type GenerationMode } from "~/lib/credits";
-import type { PlanId } from "~/lib/plan";
+import { PLANS, type PlanId } from "~/lib/plan";
 
 const inspirationTags = [
   "80s synth-pop",
@@ -32,6 +32,8 @@ const styleTags = [
   "Ambient pads",
 ];
 
+const DURATION_PRESETS = [30, 60, 120, 180, 240] as const;
+
 type SongPanelProps = {
   initialCredits: number;
   plan: PlanId;
@@ -46,6 +48,9 @@ export function SongPanel({ initialCredits, plan }: SongPanelProps) {
   const [styleInput, setStyleInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [credits, setCredits] = useState(initialCredits);
+  const maxDuration = PLANS[plan].maxAudioDurationSeconds;
+  const defaultDuration = Math.min(180, maxDuration);
+  const [durationSeconds, setDurationSeconds] = useState(defaultDuration);
 
   const generationMode: GenerationMode = useMemo(() => {
     if (mode === "simple") return "simple";
@@ -53,8 +58,21 @@ export function SongPanel({ initialCredits, plan }: SongPanelProps) {
     return "prompt_with_described_lyrics";
   }, [mode, lyricsMode]);
 
-  // Until duration controls are exposed, use the default 180s for estimation
-  const estimatedDurationSeconds = 180;
+  const allowedDurations = useMemo(
+    () => DURATION_PRESETS.filter((d) => d <= maxDuration),
+    [maxDuration],
+  );
+
+  useEffect(() => {
+    if (durationSeconds > maxDuration) {
+      setDurationSeconds(Math.min(180, maxDuration));
+    }
+  }, [maxDuration, durationSeconds]);
+
+  const estimatedDurationSeconds = Math.min(
+    durationSeconds,
+    maxDuration,
+  );
 
   const estimatedCost = useMemo(
     () =>
@@ -115,6 +133,7 @@ export function SongPanel({ initialCredits, plan }: SongPanelProps) {
       requestBody = {
         fullDescribedSong: description,
         instrumental,
+        audioDuration: estimatedDurationSeconds,
       };
     } else {
       const prompt = styleInput;
@@ -123,12 +142,14 @@ export function SongPanel({ initialCredits, plan }: SongPanelProps) {
           prompt,
           lyrics,
           instrumental,
+          audioDuration: estimatedDurationSeconds,
         };
       } else {
         requestBody = {
           prompt,
           describedLyrics: lyrics,
           instrumental,
+          audioDuration: estimatedDurationSeconds,
         };
       }
     }
@@ -294,7 +315,30 @@ export function SongPanel({ initialCredits, plan }: SongPanelProps) {
         </Tabs>
       </div>
 
-      <div className="border-t p-4 space-y-2">
+      <div className="border-t p-4 space-y-3">
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-medium">Duration</label>
+          <select
+            value={durationSeconds}
+            onChange={(e) =>
+              setDurationSeconds(Number(e.target.value))
+            }
+            className="border-input bg-background ring-offset-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+          >
+            {allowedDurations.map((d) => (
+              <option key={d} value={d}>
+                {d < 60
+                  ? `${d} sec`
+                  : d === 60
+                    ? "1 min"
+                    : `${d / 60} min`}
+              </option>
+            ))}
+          </select>
+          <p className="text-muted-foreground text-xs">
+            Max {maxDuration}s for your plan.
+          </p>
+        </div>
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>
             This song will cost{" "}

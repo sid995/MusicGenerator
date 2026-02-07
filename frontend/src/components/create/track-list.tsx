@@ -7,6 +7,7 @@ import {
   Music,
   Pencil,
   Play,
+  Plus,
   RefreshCcw,
   Search,
   XCircle,
@@ -14,7 +15,12 @@ import {
 import { Input } from "../ui/input";
 import { useState } from "react";
 import { Button } from "../ui/button";
-import { getPlayUrl } from "~/actions/generation";
+import {
+  getPlayUrl,
+  requestExtendSong,
+  requestStemSplit,
+  getStemDownloadUrl,
+} from "~/actions/generation";
 import { Badge } from "../ui/badge";
 import { renameSong, setPublishedStatus } from "~/actions/song";
 import {
@@ -24,9 +30,9 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { RenameDialog } from "./rename-dialog";
+import { ExtendDialog } from "./extend-dialog";
 import { useRouter } from "next/navigation";
 import { usePlayerStore } from "~/stores/use-player-store";
-import Image from "next/image";
 
 export interface Track {
   id: string;
@@ -42,6 +48,10 @@ export interface Track {
   status: string | null;
   createdByUserName: string | null;
   published: boolean;
+  vocalsS3Key?: string | null;
+  drumsS3Key?: string | null;
+  bassS3Key?: string | null;
+  otherS3Key?: string | null;
 }
 
 export function TrackList({ tracks }: { tracks: Track[] }) {
@@ -49,7 +59,12 @@ export function TrackList({ tracks }: { tracks: Track[] }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
   const [trackToRename, setTrackToRename] = useState<Track | null>(null);
+  const [trackToExtend, setTrackToExtend] = useState<Track | null>(null);
+  const [splittingTrackId, setSplittingTrackId] = useState<string | null>(null);
   const router = useRouter();
+
+  const hasStems = (track: Track) =>
+    !!(track.vocalsS3Key ?? track.drumsS3Key ?? track.bassS3Key ?? track.otherS3Key);
   const setTrack = usePlayerStore((state) => state.setTrack);
 
   const handleTrackSelect = async (track: Track) => {
@@ -257,6 +272,58 @@ export function TrackList({ tracks }: { tracks: Track[] }) {
                                   <Download className="mr-2" /> Download
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setTrackToExtend(track);
+                                  }}
+                                >
+                                  <Plus className="mr-2" /> Extend
+                                </DropdownMenuItem>
+                                {hasStems(track) ? (
+                                  (["vocals", "drums", "bass", "other"] as const).map(
+                                    (stem) =>
+                                      track[`${stem}S3Key` as keyof Track] && (
+                                        <DropdownMenuItem
+                                          key={stem}
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            const url = await getStemDownloadUrl(
+                                              track.id,
+                                              stem,
+                                            );
+                                            if (url) window.open(url, "_blank");
+                                          }}
+                                        >
+                                          <Download className="mr-2" /> Download{" "}
+                                          {stem}
+                                        </DropdownMenuItem>
+                                      ),
+                                  )
+                                ) : (
+                                  <DropdownMenuItem
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        setSplittingTrackId(track.id);
+                                        await requestStemSplit(track.id);
+                                        router.refresh();
+                                      } catch (err) {
+                                        console.error(err);
+                                      } finally {
+                                        setSplittingTrackId(null);
+                                      }
+                                    }}
+                                    disabled={splittingTrackId === track.id}
+                                  >
+                                    {splittingTrackId === track.id ? (
+                                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Music className="mr-2" />
+                                    )}{" "}
+                                    Split stems
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
                                   onClick={async (e) => {
                                     e.stopPropagation();
                                     setTrackToRename(track);
@@ -297,6 +364,17 @@ export function TrackList({ tracks }: { tracks: Track[] }) {
           track={trackToRename}
           onClose={() => setTrackToRename(null)}
           onRename={(trackId, newTitle) => renameSong(trackId, newTitle)}
+        />
+      )}
+      {trackToExtend && (
+        <ExtendDialog
+          track={trackToExtend}
+          onClose={() => setTrackToExtend(null)}
+          onExtend={async (parentSongId, additionalSeconds) => {
+            await requestExtendSong(parentSongId, additionalSeconds);
+            setTrackToExtend(null);
+            router.refresh();
+          }}
         />
       )}
     </div>

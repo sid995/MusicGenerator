@@ -16,6 +16,7 @@ export interface GenerateRequest {
   fullDescribedSong?: string;
   describedLyrics?: string;
   instrumental?: boolean;
+  audioDuration?: number;
 }
 
 export async function generateSong(generateRequest: GenerateRequest) {
@@ -34,7 +35,12 @@ export async function generateSong(generateRequest: GenerateRequest) {
     throw new Error("Not enough credits to generate a song.");
   }
 
-  await queueSong(generateRequest, 15, session.user.id);
+  await queueSong(
+    generateRequest,
+    15,
+    session.user.id,
+    generateRequest.audioDuration ?? 180,
+  );
 
   revalidatePath("/create");
 }
@@ -43,6 +49,7 @@ export async function queueSong(
   generateRequest: GenerateRequest,
   guidanceScale: number,
   userId: string,
+  audioDurationSeconds = 180,
 ) {
   let title = "Untitled";
   if (generateRequest.describedLyrics) title = generateRequest.describedLyrics;
@@ -61,7 +68,7 @@ export async function queueSong(
       fullDescribedSong: generateRequest.fullDescribedSong,
       instrumental: generateRequest.instrumental,
       guidanceScale: guidanceScale,
-      audioDuration: 180,
+      audioDuration: audioDurationSeconds,
     },
   });
 
@@ -103,6 +110,126 @@ export async function getPlayUrl(songId: string) {
   });
 
   return await getPresignedUrl(song.s3Key!);
+}
+
+/** Returns presigned play URL for a published song. Does not require auth. */
+export async function getPublicPlayUrl(songId: string) {
+  const song = await db.song.findUnique({
+    where: {
+      id: songId,
+      published: true,
+      s3Key: { not: null },
+    },
+    select: { s3Key: true },
+  });
+
+  if (!song?.s3Key) return null;
+
+  await db.song.update({
+    where: { id: songId },
+    data: { listenCount: { increment: 1 } },
+  });
+
+  return getPresignedUrl(song.s3Key);
+}
+
+export async function requestExtendSong(
+  parentSongId: string,
+  additionalDurationSeconds: number,
+) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session) redirect("/auth/sign-in");
+
+  const parent = await db.song.findUniqueOrThrow({
+    where: { id: parentSongId, userId: session.user.id },
+    select: { title: true },
+  });
+
+  const song = await db.song.create({
+    data: {
+      userId: session.user.id,
+      title: `${parent.title} (extended)`,
+      parentSongId,
+      status: "queued",
+    },
+  });
+
+  await inngest.send({
+    name: "extend-song-event",
+    data: {
+      songId: song.id,
+      userId: session.user.id,
+      parentSongId,
+      additionalDurationSeconds,
+    },
+  });
+
+  revalidatePath("/create");
+  revalidatePath("/library");
+}
+
+export async function requestStemSplit(songId: string) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session) redirect("/auth/sign-in");
+
+  const song = await db.song.findUniqueOrThrow({
+    where: { id: songId, userId: session.user.id },
+    select: { s3Key: true, vocalsS3Key: true },
+  });
+
+  if (!song.s3Key) {
+    throw new Error("Song has no audio to split.");
+  }
+  if (song.vocalsS3Key) {
+    throw new Error("Stems already exist for this song.");
+  }
+
+  await inngest.send({
+    name: "split-stems-event",
+    data: { songId },
+  });
+
+  revalidatePath("/create");
+  revalidatePath("/library");
+}
+
+const STEM_TYPES = ["vocals", "drums", "bass", "other"] as const;
+export type StemType = (typeof STEM_TYPES)[number];
+
+export async function getStemDownloadUrl(
+  songId: string,
+  stemType: StemType,
+): Promise<string | null> {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session) redirect("/auth/sign-in");
+
+  const keyField =
+    stemType === "vocals"
+      ? "vocalsS3Key"
+      : stemType === "drums"
+        ? "drumsS3Key"
+        : stemType === "bass"
+          ? "bassS3Key"
+          : "otherS3Key";
+
+  const song = await db.song.findUnique({
+    where: { id: songId, userId: session.user.id },
+    select: { [keyField]: true },
+  });
+
+  const key = song?.[keyField as keyof typeof song];
+  if (typeof key !== "string") return null;
+
+  return getPresignedUrl(key);
 }
 
 export async function getPresignedUrl(key: string) {

@@ -253,3 +253,254 @@ export const generateSong = inngest.createFunction(
     }
   },
 );
+
+export const extendSong = inngest.createFunction(
+  {
+    id: "extend-song",
+    concurrency: {
+      limit: 1,
+      key: "event.data.userId",
+    },
+    onFailure: async ({ event }) => {
+      const data = event?.data?.event?.data as { songId?: string };
+      if (data?.songId) {
+        await db.song.update({
+          where: { id: data.songId },
+          data: { status: "failed" },
+        });
+      }
+    },
+  },
+  { event: "extend-song-event" },
+  async ({ event, step }) => {
+    const { songId, userId, parentSongId, additionalDurationSeconds } = event
+      .data as {
+      songId: string;
+      userId: string;
+      parentSongId: string;
+      additionalDurationSeconds: number;
+    };
+
+    const extendEndpoint = env.GENERATE_EXTEND_SONG;
+    if (!extendEndpoint) {
+      await step.run("set-status-no-extend-endpoint", async () => {
+        return await db.song.update({
+          where: { id: songId },
+          data: {
+            status: "failed",
+          },
+        });
+      });
+      return;
+    }
+
+    const extendPayload = await step.run(
+      "load-parent-and-check-credits",
+      async () => {
+        const parent = await db.song.findUniqueOrThrow({
+          where: { id: parentSongId },
+          select: { s3Key: true },
+        });
+        if (!parent.s3Key) {
+          throw new Error("Parent song has no audio.");
+        }
+        const user = await db.user.findUniqueOrThrow({
+          where: { id: userId },
+          select: { credits: true, plan: true },
+        });
+        const plan = PLANS[user.plan as keyof typeof PLANS];
+        const cost = calculateCredits({
+          durationSeconds: additionalDurationSeconds,
+          mode: "simple",
+          plan: plan.id,
+        });
+        return {
+          parentS3Key: parent.s3Key,
+          credits: user.credits,
+          cost,
+        };
+      },
+    );
+
+    const { parentS3Key, credits, cost } = extendPayload;
+
+    if (credits < cost) {
+      await step.run("set-status-no-credits-extend", async () => {
+        return await db.song.update({
+          where: { id: songId },
+          data: { status: "no credits" },
+        });
+      });
+      return;
+    }
+
+    await step.run("set-status-processing-extend", async () => {
+      return await db.song.update({
+        where: { id: songId },
+        data: { status: "processing" },
+      });
+    });
+
+    const response = await step.fetch(extendEndpoint, {
+      method: "POST",
+      body: JSON.stringify({
+        parent_s3_key: parentS3Key,
+        additional_duration_seconds: additionalDurationSeconds,
+      }),
+      headers: {
+        "Content-Type": "application/json",
+        "Modal-Key": env.MODAL_KEY,
+        "Modal-Secret": env.MODAL_SECRET,
+      },
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error("Extend song failed", {
+        status: response.status,
+        body: errorBody,
+      });
+      await step.run("set-status-failed-extend", async () => {
+        return await db.song.update({
+          where: { id: songId },
+          data: { status: "failed" },
+        });
+      });
+      return;
+    }
+
+    const rawData = (await response.json()) as
+      | { s3_key: string; cover_image_s3_key: string; categories: string[] }
+      | { error?: string };
+    if ("error" in rawData) {
+      await step.run("set-status-failed-extend-msg", async () => {
+        return await db.song.update({
+          where: { id: songId },
+          data: { status: "failed" },
+        });
+      });
+      return;
+    }
+
+    const data = rawData as {
+      s3_key: string;
+      cover_image_s3_key: string;
+      categories: string[];
+    };
+
+    await step.run("update-extended-song-result", async () => {
+      await db.song.update({
+        where: { id: songId },
+        data: {
+          s3Key: data.s3_key,
+          thumbnailS3Key: data.cover_image_s3_key,
+          status: "processed",
+        },
+      });
+      if (data.categories.length > 0) {
+        await db.song.update({
+          where: { id: songId },
+          data: {
+            categories: {
+              connectOrCreate: data.categories.map((name: string) => ({
+                where: { name },
+                create: { name },
+              })),
+            },
+          },
+        });
+      }
+    });
+
+    await step.run("deduct-credits-extend", async () => {
+      return await db.user.update({
+        where: { id: userId },
+        data: { credits: { decrement: cost } },
+      });
+    });
+  },
+);
+
+export const splitStems = inngest.createFunction(
+  {
+    id: "split-stems",
+    concurrency: { limit: 2 },
+    onFailure: async ({ event }) => {
+      const data = event?.data?.event?.data as { songId?: string };
+      if (data?.songId) {
+        await db.song.update({
+          where: { id: data.songId },
+          data: {
+            vocalsS3Key: null,
+            drumsS3Key: null,
+            bassS3Key: null,
+            otherS3Key: null,
+          },
+        });
+      }
+    },
+  },
+  { event: "split-stems-event" },
+  async ({ event, step }) => {
+    const { songId } = event.data as { songId: string };
+    const endpoint = env.GENERATE_SPLIT_STEMS;
+    if (!endpoint) {
+      await step.run("set-split-failed-no-endpoint", async () => {
+        return await db.song.update({
+          where: { id: songId },
+          data: {},
+        });
+      });
+      return;
+    }
+
+    const song = await step.run("load-song-for-split", async () => {
+      return await db.song.findUniqueOrThrow({
+        where: { id: songId },
+        select: { s3Key: true },
+      });
+    });
+
+    if (!song.s3Key) {
+      return;
+    }
+
+    const response = await step.fetch(endpoint, {
+      method: "POST",
+      body: JSON.stringify({
+        song_id: songId,
+        mix_s3_key: song.s3Key,
+      }),
+      headers: {
+        "Content-Type": "application/json",
+        "Modal-Key": env.MODAL_KEY,
+        "Modal-Secret": env.MODAL_SECRET,
+      },
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("Split stems failed", { status: response.status, body: errText });
+      return;
+    }
+
+    const data = (await response.json()) as {
+      vocals_s3_key?: string;
+      drums_s3_key?: string;
+      bass_s3_key?: string;
+      other_s3_key?: string;
+    };
+
+    await step.run("save-stem-keys", async () => {
+      return await db.song.update({
+        where: { id: songId },
+        data: {
+          vocalsS3Key: data.vocals_s3_key ?? null,
+          drumsS3Key: data.drums_s3_key ?? null,
+          bassS3Key: data.bass_s3_key ?? null,
+          otherS3Key: data.other_s3_key ?? null,
+        },
+      });
+    });
+  },
+);

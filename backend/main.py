@@ -30,6 +30,13 @@ hf_volume = modal.Volume.from_name("qwen-hf-cache", create_if_missing=True)
 
 music_gen_secrets = modal.Secret.from_name("music-gen-secret")
 
+# Lighter image for stem splitting (Demucs)
+stem_image = (
+    modal.Image.debian_slim()
+    .apt_install("ffmpeg")
+    .pip_install("demucs", "torch", "boto3", "pydantic")
+)
+
 
 class AudioGenerationBase(BaseModel):
     audio_duration: float = 180.0
@@ -61,6 +68,22 @@ class GenerateMusicResponseS3(BaseModel):
 
 class GenerateMusicResponse(BaseModel):
     audio_data: str
+
+
+class ExtendSongRequest(BaseModel):
+    """Request to extend an existing song by generating a continuation segment."""
+
+    parent_s3_key: str
+    additional_duration_seconds: float = 60.0
+    prompt: str | None = None
+    lyrics: str | None = None
+
+
+class SplitStemsRequest(BaseModel):
+    """Request to split a mix into stems (vocals, drums, bass, other)."""
+
+    song_id: str
+    mix_s3_key: str
 
 
 @app.cls(
@@ -286,6 +309,83 @@ class MusicGenServer:
             description_for_categorization=request.prompt,
             **request.model_dump(exclude={"described_lyrics", "prompt"}),
         )
+
+    @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
+    def extend_song(self, request: ExtendSongRequest) -> dict:
+        """
+        Stub: Continuation / extend is not yet supported by the current model.
+        Phase 2: integrate an extend-capable model or use chunk-based generation.
+        """
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=501,
+            content={
+                "error": "Continuation not yet supported. Phase 2: integrate extend-capable model.",
+            },
+        )
+
+
+@app.cls(
+    image=stem_image,
+    gpu="T4",
+    secrets=[music_gen_secrets],
+    timeout=600,
+)
+class StemSplitter:
+    """Split a mix into stems using Demucs."""
+
+    @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
+    def split_stems(self, request: SplitStemsRequest) -> dict:
+        import subprocess
+        import tempfile
+
+        song_id = request.song_id
+        mix_s3_key = request.mix_s3_key
+        bucket_name = os.environ["S3_BUCKET_NAME"]
+        s3 = boto3.client("s3")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "mix.wav")
+            s3.download_file(bucket_name, mix_s3_key, input_path)
+
+            out_dir = os.path.join(tmpdir, "stems_out")
+            os.makedirs(out_dir, exist_ok=True)
+            subprocess.run(
+                [
+                    "python",
+                    "-m",
+                    "demucs",
+                    "-n",
+                    "htdemucs",
+                    input_path,
+                    "-o",
+                    out_dir,
+                ],
+                check=True,
+                capture_output=True,
+                timeout=300,
+            )
+
+            # Output is out_dir/htdemucs/mix/vocals.wav, drums.wav, bass.wav, other.wav
+            model_dir = os.path.join(out_dir, "htdemucs")
+            if not os.path.isdir(model_dir):
+                raise RuntimeError("Demucs output dir not found")
+            track_dirs = [d for d in os.listdir(model_dir) if os.path.isdir(os.path.join(model_dir, d))]
+            if not track_dirs:
+                raise RuntimeError("No track output from Demucs")
+            track_dir = os.path.join(model_dir, track_dirs[0])
+
+            stem_keys = {}
+            for stem_name in ("vocals", "drums", "bass", "other"):
+                stem_path = os.path.join(track_dir, f"{stem_name}.wav")
+                if not os.path.isfile(stem_path):
+                    continue
+                s3_key = f"stems/{song_id}/{stem_name}.wav"
+                s3.upload_file(stem_path, bucket_name, s3_key)
+                stem_keys[f"{stem_name}_s3_key"] = s3_key
+
+        return stem_keys
 
 
 @app.local_entrypoint()
